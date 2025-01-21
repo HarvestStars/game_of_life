@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "glider.h"  // Make sure to have this file in the same directory or adjust the include path
+#include "grower.h"
+//#include "glider.h"
 
 #define WIDTH 3000
 #define HEIGHT 3000
@@ -58,12 +59,22 @@ int main(int argc, char** argv) {
         memset(new_grid[i], 0, WIDTH * sizeof(int));
     }
 
-    // Initialize the glider pattern at the center of the grid
+    // // Initialize the glider pattern at the center of the grid
+    // if (rank == HEIGHT / 2 / (rows_per_process - 2)) {
+    //     int start_row = (HEIGHT / 2) % (rows_per_process - 2);
+    //     for (int i = 0; i < GLIDER_HEIGHT; i++) {
+    //         for (int j = 0; j < GLIDER_WIDTH; j++) {
+    //             grid[start_row + i][WIDTH / 2 + j - GLIDER_WIDTH / 2] = glider[i][j];
+    //         }
+    //     }
+    // }
+
+    // Initialize the grower pattern at the center of the grid
     if (rank == HEIGHT / 2 / (rows_per_process - 2)) {
         int start_row = (HEIGHT / 2) % (rows_per_process - 2);
-        for (int i = 0; i < GLIDER_HEIGHT; i++) {
-            for (int j = 0; j < GLIDER_WIDTH; j++) {
-                grid[start_row + i][WIDTH / 2 + j - GLIDER_WIDTH / 2] = glider[i][j];
+        for (int i = 0; i < GROWER_HEIGHT; i++) {
+            for (int j = 0; j < GROWER_WIDTH; j++) {
+                grid[start_row + i][WIDTH / 2 + j - GROWER_WIDTH / 2] = grower[i][j];
             }
         }
     }
@@ -108,6 +119,25 @@ int main(int argc, char** argv) {
 
         // wait for all processes to finish updating their grids before proceeding to the next iteration
         MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
+
+        if (iter == 10 || iter == 100) {
+            // calculate the number of alive cells in the grid
+            int local_alive_count = 0;
+            for (int i = 1; i < rows_per_process - 1; i++) {  // avoid ghost rows
+                for (int j = 0; j < WIDTH; j++) {
+                    if (grid[i][j] == 1) {
+                        local_alive_count++;
+                    }
+                }
+            }
+            // Reduce all local counts to get the global count
+            int global_alive_count = 0;
+            MPI_CHECK(MPI_Reduce(&local_alive_count, &global_alive_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD));
+        
+            if (rank == 0) {
+                printf("Total alive cells after %d iterations: %d\n", iter, global_alive_count);
+            }
+        }
     }
 
     // Count local live cells
