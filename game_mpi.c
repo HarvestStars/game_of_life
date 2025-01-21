@@ -9,6 +9,17 @@
 #define HEIGHT 3000
 #define ITERATIONS 5000
 
+// Macro for handling MPI errors
+#define MPI_CHECK(call) \
+    do { \
+        int err = (call); \
+        if (err != MPI_SUCCESS) { \
+            fprintf(stderr, "MPI error at %s:%d\n", __FILE__, __LINE__); \
+            MPI_Abort(MPI_COMM_WORLD, err); \
+            exit(EXIT_FAILURE); \
+        } \
+    } while (0)
+
 // Function to count the live neighbors of a cell
 int count_live_neighbors(int x, int y, int** grid) {
     int count = 0;
@@ -30,10 +41,10 @@ int count_live_neighbors(int x, int y, int** grid) {
 int main(int argc, char** argv) {
     // Initialize MPI
     int rank, size;
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
+    MPI_CHECK(MPI_Init(&argc, &argv));
+    MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &size));
+
     // Start the timer
     double start_time = MPI_Wtime();
 
@@ -64,15 +75,15 @@ int main(int argc, char** argv) {
         // For middle ranks, send the top ghost row to rank - 1 and bottom ghost row to rank + 1
         // For the last rank, just send the bottom ghost row to rank - 1
         if (rank > 0) {
-            MPI_Sendrecv(grid[1], WIDTH, MPI_INT, rank - 1, 0, 
+            MPI_CHECK(MPI_Sendrecv(grid[1], WIDTH, MPI_INT, rank - 1, 0, 
                         grid[0], WIDTH, MPI_INT, rank - 1, 0,
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE));
         }
 
         if (rank < size - 1) {
-            MPI_Sendrecv(grid[rows_per_process - 2], WIDTH, MPI_INT, rank + 1, 0, 
+            MPI_CHECK(MPI_Sendrecv(grid[rows_per_process - 2], WIDTH, MPI_INT, rank + 1, 0, 
                         grid[rows_per_process - 1], WIDTH, MPI_INT, rank + 1, 0,
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE));
         }
 
         // core part of the game of life
@@ -96,7 +107,7 @@ int main(int argc, char** argv) {
         new_grid = temp;
 
         // wait for all processes to finish updating their grids before proceeding to the next iteration
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
     }
 
     // Count local live cells
@@ -111,7 +122,7 @@ int main(int argc, char** argv) {
 
     // Reduce all local counts to get the global count
     int global_alive_count = 0;
-    MPI_Reduce(&local_alive_count, &global_alive_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_CHECK(MPI_Reduce(&local_alive_count, &global_alive_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD));
 
     // Stop the timer
     double end_time = MPI_Wtime();
@@ -129,6 +140,6 @@ int main(int argc, char** argv) {
     free(grid);
     free(new_grid);
 
-    MPI_Finalize();
+    MPI_CHECK(MPI_Finalize());
     return 0;
 }
