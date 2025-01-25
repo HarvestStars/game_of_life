@@ -4,11 +4,11 @@
 #include <string.h>
 #include <time.h>
 #include "grower.h"
-//#include "glider.h"
 
 #define WIDTH 3000
 #define HEIGHT 3000
 #define ITERATIONS 5000
+#define DEAD -1  // Marking permanent dead cells
 
 // Macro for handling MPI errors
 #define MPI_CHECK(call) \
@@ -59,15 +59,21 @@ int main(int argc, char** argv) {
         memset(new_grid[i], 0, WIDTH * sizeof(int));
     }
 
-    // // Initialize the glider pattern at the center of the grid
-    // if (rank == HEIGHT / 2 / (rows_per_process - 2)) {
-    //     int start_row = (HEIGHT / 2) % (rows_per_process - 2);
-    //     for (int i = 0; i < GLIDER_HEIGHT; i++) {
-    //         for (int j = 0; j < GLIDER_WIDTH; j++) {
-    //             grid[start_row + i][WIDTH / 2 + j - GLIDER_WIDTH / 2] = glider[i][j];
-    //         }
-    //     }
-    // }
+    // Set border cells to permanent death (-1)
+    if (rank == 0) {
+        for (int j = 0; j < WIDTH; j++) {
+            grid[0][j] = DEAD;
+        }
+    }
+    if (rank == size - 1) {
+        for (int j = 0; j < WIDTH; j++) {
+            grid[rows_per_process - 1 - (HEIGHT % size == 0 ? 0 : 1)][j] = DEAD;
+        }
+    }
+    for (int i = 0; i < rows_per_process; i++) {
+        grid[i][0] = DEAD;
+        grid[i][WIDTH - 1] = DEAD;
+    }
 
     // Initialize the grower pattern at the center of the grid
     if (rank == HEIGHT / 2 / (rows_per_process - 2)) {
@@ -97,17 +103,21 @@ int main(int argc, char** argv) {
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE));
         }
 
-        // core part of the game of life
+        // Apply the game rules
         for (int i = 1; i < rows_per_process - 1; i++) {
             for (int j = 0; j < WIDTH; j++) {
-                int live_neighbors = count_live_neighbors(i, j, grid);
-                int cell = grid[i][j];
-                if (cell == 1 && (live_neighbors < 2 || live_neighbors > 3)) {
-                    new_grid[i][j] = 0;
-                } else if (cell == 0 && live_neighbors == 3) {
-                    new_grid[i][j] = 1;
+                if (grid[i][j] == DEAD) {
+                    new_grid[i][j] = DEAD;
                 } else {
-                    new_grid[i][j] = cell;
+                    int live_neighbors = count_live_neighbors(i, j, grid);
+                    int cell = grid[i][j];
+                    if (cell == 1 && (live_neighbors < 2 || live_neighbors > 3)) {
+                        new_grid[i][j] = 0;
+                    } else if ((cell == 0 || cell == DEAD)&& live_neighbors == 3) {
+                        new_grid[i][j] = 1;
+                    } else {
+                        new_grid[i][j] = cell;
+                    }
                 }
             }
         }
@@ -120,7 +130,7 @@ int main(int argc, char** argv) {
         // wait for all processes to finish updating their grids before proceeding to the next iteration
         MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
-        if (iter == 10 || iter == 100) {
+        if (iter == 9 || iter == 10 || iter == 99 || iter == 100) {
             // calculate the number of alive cells in the grid
             int local_alive_count = 0;
             for (int i = 1; i < rows_per_process - 1; i++) {  // avoid ghost rows
